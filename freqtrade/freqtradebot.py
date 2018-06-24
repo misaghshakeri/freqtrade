@@ -93,7 +93,9 @@ class FreqtradeBot(object):
         # Log state transition
         state = self.state
         if state != old_state:
-            self.rpc.send_msg(f'*Status:* `{state.name.lower()}`')
+            self.rpc.send_msg({
+                'status': f'{state.name.lower()}'
+            })
             logger.info('Changing state to: %s', state.name)
 
         if state == State.STOPPED:
@@ -169,9 +171,9 @@ class FreqtradeBot(object):
         except OperationalException:
             tb = traceback.format_exc()
             hint = 'Issue `/start` if you think it is safe to restart.'
-            self.rpc.send_msg(
-                f'*Status:* OperationalException:\n```\n{tb}```{hint}'
-            )
+            self.rpc.send_msg({
+                'status': f'OperationalException:\n```\n{tb}```{hint}'
+            })
             logger.exception('OperationalException. Stopping trader ...')
             self.state = State.STOPPED
         return state_changed
@@ -359,11 +361,12 @@ class FreqtradeBot(object):
         )
 
         # Create trade entity and return
-        self.rpc.send_msg(
-            f"""*{exc_name}:* Buying [{pair_s}]({pair_url}) \
-with limit `{buy_limit:.8f} ({stake_amount:.6f} \
-{stake_currency}, {stake_amount_fiat:.3f} {fiat_currency})`"""
-        )
+        self.rpc.send_msg({
+            'status':
+                f"""*{exc_name}:* Buying [{pair_s}]({pair_url}) \
+                with limit `{buy_limit:.8f} ({stake_amount:.6f} \
+                {stake_currency}, {stake_amount_fiat:.3f} {fiat_currency})`"""
+        })
         # Fee is applied twice because we make a LIMIT_BUY and LIMIT_SELL
         fee = self.exchange.get_fee(symbol=pair, taker_or_maker='maker')
         trade = Trade(
@@ -543,7 +546,9 @@ with limit `{buy_limit:.8f} ({stake_amount:.6f} \
             Trade.session.delete(trade)
             Trade.session.flush()
             logger.info('Buy order timeout for %s.', trade)
-            self.rpc.send_msg(f'*Timeout:* Unfilled buy order for {pair_s} cancelled')
+            self.rpc.send_msg({
+                'status': f'Unfilled buy order for {pair_s} cancelled due to timeout'
+            })
             return True
 
         # if trade is partially complete, edit the stake details for the trade
@@ -552,7 +557,9 @@ with limit `{buy_limit:.8f} ({stake_amount:.6f} \
         trade.stake_amount = trade.amount * trade.open_rate
         trade.open_order_id = None
         logger.info('Partial buy order timeout for %s.', trade)
-        self.rpc.send_msg(f'*Timeout:* Remaining buy order for {pair_s} cancelled')
+        self.rpc.send_msg({
+            'status': f'Remaining buy order for {pair_s} cancelled due to timeout'
+        })
         return False
 
     # FIX: 20180110, should cancel_order() be cond. or unconditionally called?
@@ -570,7 +577,9 @@ with limit `{buy_limit:.8f} ({stake_amount:.6f} \
             trade.close_date = None
             trade.is_open = True
             trade.open_order_id = None
-            self.rpc.send_msg(f'*Timeout:* Unfilled sell order for {pair_s} cancelled')
+            self.rpc.send_msg({
+                'status': f'Unfilled sell order for {pair_s} cancelled due to timeout'
+            })
             logger.info('Sell order timeout for %s.', trade)
             return True
 
@@ -630,5 +639,5 @@ with limit `{buy_limit:.8f} ({stake_amount:.6f} \
             )
 
         # Send the message
-        self.rpc.send_msg(message)
+        self.rpc.send_msg({'status': message})
         Trade.session.flush()
