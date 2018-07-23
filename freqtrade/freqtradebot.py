@@ -9,8 +9,10 @@ import traceback
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
+import asyncio
 import arrow
 import requests
+
 from cachetools import TTLCache, cached
 
 from freqtrade import (DependencyException, OperationalException,
@@ -309,7 +311,6 @@ class FreqtradeBot(object):
         if one pair triggers the buy_signal a new trade record gets created
         :return: True if a trade object has been created and persisted, False otherwise
         """
-        interval = self.strategy.ticker_interval
         stake_amount = self._get_trade_stake_amount()
 
         if not stake_amount:
@@ -330,11 +331,38 @@ class FreqtradeBot(object):
         if not whitelist:
             raise DependencyException('No currency pairs in whitelist')
 
-        # Pick pair based on buy signals
-        for _pair in whitelist:
-            (buy, sell) = self.strategy.get_signal(self.exchange, _pair, interval)
+        # Async function which analyses each pair
+        async def buy_signal_exists(pair):
+            (buy, sell) = self.strategy.get_signal(self.exchange, pair, self.strategy.ticker_interval)
             if buy and not sell:
-                return self.execute_buy(_pair, stake_amount)
+                return pair
+
+        # Pick pair based on buy signals using asyncio
+        # a list of parallel tasks each calling buy_signal_exists async function  
+        tasks_pairs_having_buy_signal = []
+
+        # a list of pairs resulting from async tasks
+        pairs_having_buy_signal = []
+
+        # constructing the for tasks
+        loop = asyncio.get_event_loop()
+        for _pair in whitelist:
+            tasks_pairs_having_buy_signal.append(asyncio.ensure_future(buy_signal_exists(_pair)))
+            
+        # running all tasks in parralel and wait till all done
+        loop.run_until_complete(asyncio.gather(*tasks_pairs_having_buy_signal))
+
+        # fetching the result of each task
+        for task in tasks_pairs_having_buy_signal:
+            if task.result() is not None:
+                pairs_having_buy_signal.append(task.result())
+        
+        # if there is at least one candidate then return the first one
+        # TO BE DISCUSSED: what if there is more than one ? random choice ? 
+        if pairs_having_buy_signal:
+            #return self.execute_buy(random.choice(pairs_having_buy_signal), stake_amount)
+            return self.execute_buy(pairs_having_buy_signal[0], stake_amount)
+
         return False
 
     def execute_buy(self, pair: str, stake_amount: float) -> bool:
