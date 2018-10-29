@@ -1,5 +1,5 @@
 # pragma pylint: disable=missing-docstring, W0212, line-too-long, C0103, unused-argument
-import logging
+import logging  
 from unittest.mock import MagicMock
 from typing import NamedTuple, List
 
