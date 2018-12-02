@@ -443,8 +443,22 @@ class FreqtradeBot(object):
 
         amount = stake_amount / buy_limit
 
-        order_id = self.exchange.buy(pair=pair, ordertype=self.strategy.order_types['buy'],
-                                     amount=amount, rate=buy_limit)['id']
+        order = self.exchange.buy(pair=pair, ordertype=self.strategy.order_types['buy'],
+                                     amount=amount, rate=buy_limit,
+                                    time_in_force=self.strategy.order_time_in_force['buy'])
+        order_id = order['id']
+        order_info = order['info']
+
+        # check if order is expired (in case of FOC or IOC orders)
+        # or rejected by the exchange.
+        if order_info['status'] == 'EXPIRED' or order_info['status'] == 'REJECTED':
+            order_type = self.strategy.order_types['buy']
+            order_tif = self.strategy.order_time_in_force['buy']
+            status = order_info['status']
+            logger.warning('Buy %s order with time in force %s for %s is %s by %s.',
+                           order_tif, order_type, pair_s, status, self.exchange.name)
+            return False
+
 
         self.rpc.send_msg({
             'type': RPCMessageType.BUY_NOTIFICATION,
@@ -811,7 +825,10 @@ class FreqtradeBot(object):
         # Execute sell and update trade record
         order_id = self.exchange.sell(pair=str(trade.pair),
                                       ordertype=self.strategy.order_types[sell_type],
-                                      amount=trade.amount, rate=limit)['id']
+                                      amount=trade.amount, rate=limit,
+                                      time_in_force=self.strategy.order_time_in_force['sell']
+                                      )['id']
+
         trade.open_order_id = order_id
         trade.close_rate_requested = limit
         trade.sell_reason = sell_reason.value
