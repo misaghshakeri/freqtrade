@@ -447,7 +447,7 @@ class FreqtradeBot(object):
         logger.info('passing order... pair: %s, stake_amount: %s, '
                     'buy limit: %s, last candle close: %s, slippage: %s percent.',
                     pair_s, stake_amount, buy_limit, last_candle_close,
-                    ((buy_limit / last_candle_close) / last_candle_close) * 100
+                    ((buy_limit - last_candle_close) / last_candle_close) * 100
                     )
 
         order_id = self.exchange.buy(pair=pair, ordertype=self.strategy.order_types['buy'],
