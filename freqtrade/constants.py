@@ -16,7 +16,8 @@ UNLIMITED_STAKE_AMOUNT = 'unlimited'
 REQUIRED_ORDERTYPES = ['buy', 'sell', 'stoploss', 'stoploss_on_exchange']
 REQUIRED_ORDERTIF = ['buy', 'sell']
 ORDERTYPE_POSSIBILITIES = ['limit', 'market']
-ORDERTIF_POSSIBILITIES = ['gtc', 'aon', 'fok', 'ioc']
+REQUIRED_ORDERTIF = ['buy', 'sell']
+ORDERTIF_POSSIBILITIES = ['gtc', 'fok', 'ioc']
 AVAILABLE_PAIRLISTS = ['StaticPairList', 'VolumePairList']
 
 TICKER_INTERVAL_MINUTES = {
@@ -137,7 +138,7 @@ CONF_SCHEMA = {
         'pairlist': {
             'type': 'object',
             'properties': {
-                'method': {'type': 'string',  'enum': AVAILABLE_PAIRLISTS},
+                'method': {'type': 'string', 'enum': AVAILABLE_PAIRLISTS},
                 'config': {'type': 'object'}
             },
             'required': ['method']

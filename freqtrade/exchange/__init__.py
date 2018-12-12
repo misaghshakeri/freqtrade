@@ -238,7 +238,7 @@ class Exchange(object):
         Checks if order time in force configured in strategy/config are supported
         """
         if any(v != 'gtc' for k, v in order_time_in_force.items()):
-            if not self.name == 'Binance':
+            if self.name is not 'Binance':
                 raise OperationalException(
                     f'Time in force policies are not supporetd for  {self.name} yet.')
 
@@ -273,7 +273,8 @@ class Exchange(object):
             price = ceil(big_price) / pow(10, symbol_prec)
         return price
 
-    def buy(self, pair: str, ordertype: str, amount: float, rate: float, time_in_force='gtc') -> Dict:
+    def buy(self, pair: str, ordertype: str, amount: float,
+            rate: float, time_in_force) -> Dict:
         if self._conf['dry_run']:
             order_id = f'dry_run_buy_{randint(0, 10**6)}'
             self._dry_run_open_orders[order_id] = {
