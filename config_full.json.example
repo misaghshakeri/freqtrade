@@ -43,6 +43,13 @@
         "buy": "gtc",
         "sell": "gtc",
     },
+    "pairlist": {
+        "method": "VolumePairList",
+        "config": {
+            "number_assets": 20,
+            "sort_key": "quoteVolume"
+        }
+    },
     "exchange": {
         "name": "bittrex",
         "key": "your_exchange_key",

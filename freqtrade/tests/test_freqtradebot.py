@@ -136,37 +136,6 @@ def test_throttle_with_assets(mocker, default_conf) -> None:
     assert result == -1
 
 
-def test_gen_pair_whitelist(mocker, default_conf, tickers) -> None:
-    freqtrade = get_patched_freqtradebot(mocker, default_conf)
-    mocker.patch('freqtrade.exchange.Exchange.get_tickers', tickers)
-    mocker.patch('freqtrade.exchange.Exchange.exchange_has', MagicMock(return_value=True))
-
-    # Test to retrieved BTC sorted on quoteVolume (default)
-    whitelist = freqtrade._gen_pair_whitelist(base_currency='BTC')
-    assert whitelist == ['ETH/BTC', 'TKN/BTC', 'BLK/BTC', 'LTC/BTC']
-
-    # Test to retrieve BTC sorted on bidVolume
-    whitelist = freqtrade._gen_pair_whitelist(base_currency='BTC', key='bidVolume')
-    assert whitelist == ['LTC/BTC', 'TKN/BTC', 'ETH/BTC', 'BLK/BTC']
-
-    # Test with USDT sorted on quoteVolume (default)
-    whitelist = freqtrade._gen_pair_whitelist(base_currency='USDT')
-    assert whitelist == ['TKN/USDT', 'ETH/USDT', 'LTC/USDT', 'BLK/USDT']
-
-    # Test with ETH (our fixture does not have ETH, so result should be empty)
-    whitelist = freqtrade._gen_pair_whitelist(base_currency='ETH')
-    assert whitelist == []
-
-
-def test_gen_pair_whitelist_not_supported(mocker, default_conf, tickers) -> None:
-    freqtrade = get_patched_freqtradebot(mocker, default_conf)
-    mocker.patch('freqtrade.exchange.Exchange.get_tickers', tickers)
-    mocker.patch('freqtrade.exchange.Exchange.exchange_has', MagicMock(return_value=False))
-
-    with pytest.raises(OperationalException):
-        freqtrade._gen_pair_whitelist(base_currency='BTC')
-
-
 def test_get_trade_stake_amount(default_conf, ticker, limit_buy_order, fee, mocker) -> None:
     patch_RPCManager(mocker)
     patch_exchange(mocker)
@@ -248,7 +217,7 @@ def test_edge_called_in_process(mocker, edge_conf) -> None:
 
     patch_exchange(mocker)
     freqtrade = FreqtradeBot(edge_conf)
-    freqtrade._refresh_whitelist = _refresh_whitelist
+    freqtrade.pairlists._validate_whitelist = _refresh_whitelist
     patch_get_signal(freqtrade)
     freqtrade._process()
     assert freqtrade.active_pair_whitelist == ['NEO/BTC', 'LTC/BTC']
@@ -340,6 +309,39 @@ def test_edge_should_ignore_strategy_stoploss(limit_buy_order, fee, markets,
 
     # stoploss shoud not be hit
     assert freqtrade.handle_trade(trade) is False
+
+
+def test_total_open_trades_stakes(mocker, default_conf, ticker,
+                                  limit_buy_order, fee, markets) -> None:
+    patch_RPCManager(mocker)
+    patch_exchange(mocker)
+    default_conf['stake_amount'] = 0.0000098751
+    mocker.patch.multiple(
+        'freqtrade.exchange.Exchange',
+        get_ticker=ticker,
+        buy=MagicMock(return_value={'id': limit_buy_order['id']}),
+        get_fee=fee,
+        get_markets=markets
+    )
+    freqtrade = FreqtradeBot(default_conf)
+    patch_get_signal(freqtrade)
+    freqtrade.create_trade()
+    trade = Trade.query.first()
+
+    assert trade is not None
+    assert trade.stake_amount == 0.0000098751
+    assert trade.is_open
+    assert trade.open_date is not None
+
+    freqtrade.create_trade()
+    trade = Trade.query.order_by(Trade.id.desc()).first()
+
+    assert trade is not None
+    assert trade.stake_amount == 0.0000098751
+    assert trade.is_open
+    assert trade.open_date is not None
+
+    assert Trade.total_open_trades_stakes() == 1.97502e-05
 
 
 def test_get_min_pair_stake_amount(mocker, default_conf) -> None:
@@ -1513,6 +1515,7 @@ def test_execute_sell_up(default_conf, ticker, fee, ticker_sell_up, markets, moc
         'profit_percent': 0.0611052,
         'stake_currency': 'BTC',
         'fiat_currency': 'USD',
+        'sell_reason': SellType.ROI.value
     } == last_msg
 
 
@@ -1559,6 +1562,7 @@ def test_execute_sell_down(default_conf, ticker, fee, ticker_sell_down, markets,
         'profit_percent': -0.05478342,
         'stake_currency': 'BTC',
         'fiat_currency': 'USD',
+        'sell_reason': SellType.STOP_LOSS.value
     } == last_msg
 
 
@@ -1613,6 +1617,8 @@ def test_execute_sell_down_stoploss_on_exchange_dry_run(default_conf, ticker, fe
         'profit_percent': -0.01493766,
         'stake_currency': 'BTC',
         'fiat_currency': 'USD',
+        'sell_reason': SellType.STOP_LOSS.value
+
     } == last_msg
 
 
@@ -1781,6 +1787,8 @@ def test_execute_sell_without_conf_sell_up(default_conf, ticker, fee,
         'current_rate': 1.172e-05,
         'profit_amount': 6.126e-05,
         'profit_percent': 0.0611052,
+        'sell_reason': SellType.ROI.value
+
     } == last_msg
 
 
@@ -1827,6 +1835,7 @@ def test_execute_sell_without_conf_sell_down(default_conf, ticker, fee,
         'current_rate': 1.044e-05,
         'profit_amount': -5.492e-05,
         'profit_percent': -0.05478342,
+        'sell_reason': SellType.STOP_LOSS.value
     } == last_msg
 
 
@@ -2563,6 +2572,9 @@ def test_order_book_ask_strategy(default_conf, limit_buy_order, limit_sell_order
 
 
 def test_startup_messages(default_conf, mocker):
-    default_conf['dynamic_whitelist'] = 20
+    default_conf['pairlist'] = {'method': 'VolumePairList',
+                                'config': {'number_assets': 20}
+                                }
+    mocker.patch('freqtrade.exchange.Exchange.exchange_has', MagicMock(return_value=True))
     freqtrade = get_patched_freqtradebot(mocker, default_conf)
     assert freqtrade.state is State.RUNNING
