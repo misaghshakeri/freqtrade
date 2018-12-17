@@ -14,15 +14,15 @@ from requests.exceptions import RequestException
 
 from freqtrade import (DependencyException, OperationalException,
                        TemporaryError, __version__, constants, persistence)
-from freqtrade.exchange import Exchange
-from freqtrade.wallets import Wallets
+from freqtrade.data.converter import order_book_to_dataframe
 from freqtrade.edge import Edge
+from freqtrade.exchange import Exchange
 from freqtrade.persistence import Trade
 from freqtrade.rpc import RPCManager, RPCMessageType
 from freqtrade.resolvers import StrategyResolver, PairListResolver
 from freqtrade.state import State
 from freqtrade.strategy.interface import SellType, IStrategy
-from freqtrade.exchange.exchange_helpers import order_book_to_dataframe
+from freqtrade.wallets import Wallets
 
 
 logger = logging.getLogger(__name__)
@@ -317,7 +317,7 @@ class FreqtradeBot(object):
 
         # running get_signal on historical data fetched
         for _pair in whitelist:
-            (buy, sell) = self.strategy.get_signal(_pair, interval, self.exchange.klines.get(_pair))
+            (buy, sell) = self.strategy.get_signal(_pair, interval, self.exchange.klines(_pair))
             if buy and not sell:
                 stake_amount = self._get_trade_stake_amount(_pair)
                 if not stake_amount:
@@ -585,9 +585,8 @@ class FreqtradeBot(object):
         (buy, sell) = (False, False)
         experimental = self.config.get('experimental', {})
         if experimental.get('use_sell_signal') or experimental.get('ignore_roi_if_buy_signal'):
-            ticker = self.exchange.klines.get(trade.pair)
             (buy, sell) = self.strategy.get_signal(trade.pair, self.strategy.ticker_interval,
-                                                   ticker)
+                                                   self.exchange.klines(trade.pair))
 
         config_ask_strategy = self.config.get('ask_strategy', {})
         if config_ask_strategy.get('use_order_book', False):
