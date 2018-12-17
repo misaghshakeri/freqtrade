@@ -385,7 +385,7 @@ class FreqtradeBot(object):
 
         amount = stake_amount / buy_limit_requested
 
-        last_candle_close = self.exchange.klines[pair][-1][4]
+        last_candle_close = self.exchange._klines[pair].iloc[-1]['close']
         logger.info('passing order... pair: %s, stake_amount: %s, '
                     'buy limit: %s, last candle close: %s, slippage: %s percent.',
                     pair_s, stake_amount, buy_limit_requested, last_candle_close,
