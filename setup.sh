@@ -1,44 +1,86 @@
 #!/usr/bin/env bash
 #encoding=utf8
 
-function updateenv () {
+# Check which python version is installed
+function check_installed_python() {
+    which python3.7
+    if [ $? -eq 0 ]; then
+        echo "using Python 3.7"
+        PYTHON=python3.7
+        return
+    fi
+
+    which python3.6
+    if [ $? -eq 0 ]; then
+        echo "using Python 3.6"
+        PYTHON=python3.6
+        return
+   fi
+
+   if [ -z ${PYTHON} ]; then
+        echo "No usable python found. Please make sure to have python3.6 or python3.7 installed"
+        exit 1
+   fi
+
+}
+
+function updateenv() {
     echo "-------------------------"
-    echo "Update your virtual env"
+    echo "Updating your virtual env"
     echo "-------------------------"
     source .env/bin/activate
     echo "pip3 install in-progress. Please wait..."
-    pip3.6 install --quiet --upgrade pip
-    pip3 install --quiet -r requirements.txt --upgrade
-    pip3 install --quiet -r requirements.txt
+    # Install numpy first to have py_find_1st install clean
+    pip3 install --upgrade pip numpy
+    pip3 install --upgrade -r requirements.txt
+
+    read -p "Do you want to install dependencies for dev [y/N]? "
+    if [[ $REPLY =~ ^[Yy]$ ]]
+    then
+        pip3 install --upgrade -r requirements-dev.txt
+    else
+        echo "Dev dependencies ignored."
+    fi
+
     pip3 install --quiet -e .
     echo "pip3 install completed"
     echo
 }
 
 # Install tab lib
-function install_talib () {
-    curl -O -L http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+function install_talib() {
+    if [ -f /usr/local/lib/libta_lib.a ]; then
+        echo "ta-lib already installed, skipping"
+        return
+    fi
+
+    cd build_helpers
     tar zxvf ta-lib-0.4.0-src.tar.gz
-    cd ta-lib && ./configure --prefix=/usr && make && sudo make install
-    cd .. && rm -rf ./ta-lib*
+    cd ta-lib
+    sed -i.bak "s|0.00000001|0.000000000000000001 |g" src/ta_func/ta_utility.h
+    ./configure --prefix=/usr/local
+    make
+    sudo make install
+    cd .. && rm -rf ./ta-lib/
+    cd ..
 }
 
 # Install bot MacOS
-function install_macos () {
+function install_macos() {
     if [ ! -x "$(command -v brew)" ]
     then
         echo "-------------------------"
-        echo "Install Brew"
+        echo "Installing Brew"
         echo "-------------------------"
         /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
     fi
-    brew install python3 wget ta-lib
-
+    brew install python3 wget
+    install_talib
     test_and_fix_python_on_mac
 }
 
 # Install bot Debian_ubuntu
-function install_debian () {
+function install_debian() {
     sudo add-apt-repository ppa:jonathonf/python-3.6
     sudo apt-get update
     sudo apt-get install python3.6 python3.6-venv python3.6-dev build-essential autoconf libtool pkg-config make wget git
@@ -46,15 +88,15 @@ function install_debian () {
 }
 
 # Upgrade the bot
-function update () {
+function update() {
     git pull
     updateenv
 }
 
 # Reset Develop or Master branch
-function reset () {
+function reset() {
     echo "----------------------------"
-    echo "Reset branch and virtual env"
+    echo "Reseting branch and virtual env"
     echo "----------------------------"
     if [ "1" == $(git branch -vv |grep -cE "\* develop|\* master") ]
     then
@@ -79,7 +121,7 @@ function reset () {
     fi
 
     echo
-    python3.6 -m venv .env
+    ${PYTHON} -m venv .env
     updateenv
 }
 
@@ -96,11 +138,11 @@ function test_and_fix_python_on_mac() {
     fi
 }
 
-function config_generator () {
+function config_generator() {
 
     echo "Starting to generate config.json"
     echo
-    echo "General configuration"
+    echo "Generating General configuration"
     echo "-------------------------"
     default_max_trades=3
     read -p "Max open trades: (Default: $default_max_trades) " max_trades
@@ -119,13 +161,13 @@ function config_generator () {
     fiat_currency=${fiat_currency:-$default_fiat_currency}
 
     echo
-    echo "Exchange config generator"
+    echo "Generating exchange config "
     echo "------------------------"
     read -p "Exchange API key: " api_key
     read -p "Exchange API Secret: " api_secret
 
     echo
-    echo "Telegram config generator"
+    echo "Generating Telegram config"
     echo "-------------------------"
     read -p "Telegram Token: " token
     read -p "Telegram Chat_id: " chat_id
@@ -142,14 +184,14 @@ function config_generator () {
 
 }
 
-function config () {
+function config() {
 
     echo "-------------------------"
-    echo "Config file generator"
+    echo "Generating config file"
     echo "-------------------------"
     if [ -f config.json ]
     then
-    read -p "A config file already exist, do you want to override it [Y/N]? "
+    read -p "A config file already exist, do you want to override it [y/N]? "
     if [[ $REPLY =~ ^[Yy]$ ]]
     then
         config_generator
@@ -168,9 +210,9 @@ function config () {
     echo
 }
 
-function install () {
+function install() {
     echo "-------------------------"
-    echo "Install mandatory dependencies"
+    echo "Installing mandatory dependencies"
     echo "-------------------------"
 
     if [ "$(uname -s)" == "Darwin" ]
@@ -183,7 +225,7 @@ function install () {
         install_debian
     else
         echo "This script does not support your OS."
-        echo "If you have Python3.6, pip, virtualenv, ta-lib you can continue."
+        echo "If you have Python3.6 or Python3.7, pip, virtualenv, ta-lib you can continue."
         echo "Wait 10 seconds to continue the next install steps or use ctrl+c to interrupt this shell."
         sleep 10
     fi
@@ -191,21 +233,21 @@ function install () {
     reset
     config
     echo "-------------------------"
-    echo "Run the bot"
+    echo "Run the bot !"
     echo "-------------------------"
-    echo "You can now use the bot by executing 'source .env/bin/activate; python3.6 freqtrade/main.py'."
+    echo "You can now use the bot by executing 'source .env/bin/activate; python freqtrade'."
 }
 
-function plot () {
+function plot() {
 echo "
 -----------------------------------------
-Install dependencies for Plotting scripts
+Installing dependencies for Plotting scripts
 -----------------------------------------
 "
 pip install plotly --upgrade
 }
 
-function help () {
+function help() {
     echo "usage:"
     echo "	-i,--install    Install freqtrade from scratch"
     echo "	-u,--update     Command git pull to update."
@@ -213,6 +255,9 @@ function help () {
     echo "	-c,--config     Easy config generator (Will override your existing file)."
     echo "	-p,--plot       Install dependencies for Plotting scripts."
 }
+
+# Verify if 3.6 or 3.7 is installed
+check_installed_python
 
 case $* in
 --install|-i)

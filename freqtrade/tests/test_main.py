@@ -1,8 +1,5 @@
-"""
-Unit test file for main.py
-"""
+# pragma pylint: disable=missing-docstring
 
-import logging
 from copy import deepcopy
 from unittest.mock import MagicMock
 
@@ -11,9 +8,10 @@ import pytest
 from freqtrade import OperationalException
 from freqtrade.arguments import Arguments
 from freqtrade.freqtradebot import FreqtradeBot
-from freqtrade.main import main, set_loggers, reconfigure
+from freqtrade.main import main
 from freqtrade.state import State
 from freqtrade.tests.conftest import log_has, patch_exchange
+from freqtrade.worker import Worker
 
 
 def test_parse_args_backtesting(mocker) -> None:
@@ -25,64 +23,35 @@ def test_parse_args_backtesting(mocker) -> None:
     main(['backtesting'])
     assert backtesting_mock.call_count == 1
     call_args = backtesting_mock.call_args[0][0]
-    assert call_args.config == 'config.json'
+    assert call_args.config == ['config.json']
     assert call_args.live is False
-    assert call_args.loglevel == 20
+    assert call_args.loglevel == 0
     assert call_args.subparser == 'backtesting'
     assert call_args.func is not None
     assert call_args.ticker_interval is None
 
 
 def test_main_start_hyperopt(mocker) -> None:
-    """
-    Test that main() can start hyperopt
-    """
     hyperopt_mock = mocker.patch('freqtrade.optimize.hyperopt.start', MagicMock())
     main(['hyperopt'])
     assert hyperopt_mock.call_count == 1
     call_args = hyperopt_mock.call_args[0][0]
-    assert call_args.config == 'config.json'
-    assert call_args.loglevel == 20
+    assert call_args.config == ['config.json']
+    assert call_args.loglevel == 0
     assert call_args.subparser == 'hyperopt'
     assert call_args.func is not None
 
 
-def test_set_loggers() -> None:
-    """
-    Test set_loggers() update the logger level for third-party libraries
-    """
-    previous_value1 = logging.getLogger('requests.packages.urllib3').level
-    previous_value2 = logging.getLogger('telegram').level
-
-    set_loggers()
-
-    value1 = logging.getLogger('requests.packages.urllib3').level
-    assert previous_value1 is not value1
-    assert value1 is logging.INFO
-
-    value2 = logging.getLogger('telegram').level
-    assert previous_value2 is not value2
-    assert value2 is logging.INFO
-
-
 def test_main_fatal_exception(mocker, default_conf, caplog) -> None:
-    """
-    Test main() function
-    In this test we are skipping the while True loop by throwing an exception.
-    """
     patch_exchange(mocker)
-    mocker.patch.multiple(
-        'freqtrade.freqtradebot.FreqtradeBot',
-        _init_modules=MagicMock(),
-        worker=MagicMock(side_effect=Exception),
-        cleanup=MagicMock(),
-    )
+    mocker.patch('freqtrade.freqtradebot.FreqtradeBot.cleanup', MagicMock())
+    mocker.patch('freqtrade.worker.Worker._worker', MagicMock(side_effect=Exception))
     mocker.patch(
         'freqtrade.configuration.Configuration._load_config_file',
         lambda *args, **kwargs: default_conf
     )
-    mocker.patch('freqtrade.freqtradebot.CryptoToFiatConverter', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager', MagicMock())
+    mocker.patch('freqtrade.freqtradebot.persistence.init', MagicMock())
 
     args = ['-c', 'config.json.example']
 
@@ -94,23 +63,15 @@ def test_main_fatal_exception(mocker, default_conf, caplog) -> None:
 
 
 def test_main_keyboard_interrupt(mocker, default_conf, caplog) -> None:
-    """
-    Test main() function
-    In this test we are skipping the while True loop by throwing an exception.
-    """
     patch_exchange(mocker)
-    mocker.patch.multiple(
-        'freqtrade.freqtradebot.FreqtradeBot',
-        _init_modules=MagicMock(),
-        worker=MagicMock(side_effect=KeyboardInterrupt),
-        cleanup=MagicMock(),
-    )
+    mocker.patch('freqtrade.freqtradebot.FreqtradeBot.cleanup', MagicMock())
+    mocker.patch('freqtrade.worker.Worker._worker', MagicMock(side_effect=KeyboardInterrupt))
     mocker.patch(
         'freqtrade.configuration.Configuration._load_config_file',
         lambda *args, **kwargs: default_conf
     )
-    mocker.patch('freqtrade.freqtradebot.CryptoToFiatConverter', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager', MagicMock())
+    mocker.patch('freqtrade.freqtradebot.persistence.init', MagicMock())
 
     args = ['-c', 'config.json.example']
 
@@ -122,23 +83,18 @@ def test_main_keyboard_interrupt(mocker, default_conf, caplog) -> None:
 
 
 def test_main_operational_exception(mocker, default_conf, caplog) -> None:
-    """
-    Test main() function
-    In this test we are skipping the while True loop by throwing an exception.
-    """
     patch_exchange(mocker)
-    mocker.patch.multiple(
-        'freqtrade.freqtradebot.FreqtradeBot',
-        _init_modules=MagicMock(),
-        worker=MagicMock(side_effect=OperationalException('Oh snap!')),
-        cleanup=MagicMock(),
+    mocker.patch('freqtrade.freqtradebot.FreqtradeBot.cleanup', MagicMock())
+    mocker.patch(
+        'freqtrade.worker.Worker._worker',
+        MagicMock(side_effect=OperationalException('Oh snap!'))
     )
     mocker.patch(
         'freqtrade.configuration.Configuration._load_config_file',
         lambda *args, **kwargs: default_conf
     )
-    mocker.patch('freqtrade.freqtradebot.CryptoToFiatConverter', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager', MagicMock())
+    mocker.patch('freqtrade.freqtradebot.persistence.init', MagicMock())
 
     args = ['-c', 'config.json.example']
 
@@ -150,53 +106,51 @@ def test_main_operational_exception(mocker, default_conf, caplog) -> None:
 
 
 def test_main_reload_conf(mocker, default_conf, caplog) -> None:
-    """
-    Test main() function
-    In this test we are skipping the while True loop by throwing an exception.
-    """
     patch_exchange(mocker)
-    mocker.patch.multiple(
-        'freqtrade.freqtradebot.FreqtradeBot',
-        _init_modules=MagicMock(),
-        worker=MagicMock(return_value=State.RELOAD_CONF),
-        cleanup=MagicMock(),
-    )
+    mocker.patch('freqtrade.freqtradebot.FreqtradeBot.cleanup', MagicMock())
+    # Simulate Running, reload, running workflow
+    worker_mock = MagicMock(side_effect=[State.RUNNING,
+                                         State.RELOAD_CONF,
+                                         State.RUNNING,
+                                         OperationalException("Oh snap!")])
+    mocker.patch('freqtrade.worker.Worker._worker', worker_mock)
     mocker.patch(
         'freqtrade.configuration.Configuration._load_config_file',
         lambda *args, **kwargs: default_conf
     )
-    mocker.patch('freqtrade.freqtradebot.CryptoToFiatConverter', MagicMock())
+    reconfigure_mock = mocker.patch('freqtrade.main.Worker._reconfigure', MagicMock())
+
     mocker.patch('freqtrade.freqtradebot.RPCManager', MagicMock())
+    mocker.patch('freqtrade.freqtradebot.persistence.init', MagicMock())
 
-    # Raise exception as side effect to avoid endless loop
-    reconfigure_mock = mocker.patch(
-        'freqtrade.main.reconfigure', MagicMock(side_effect=Exception)
-    )
-
+    args = Arguments(['-c', 'config.json.example'], '').get_parsed_arg()
+    worker = Worker(args=args, config=default_conf)
     with pytest.raises(SystemExit):
         main(['-c', 'config.json.example'])
 
-    assert reconfigure_mock.call_count == 1
     assert log_has('Using config: config.json.example ...', caplog.record_tuples)
+    assert worker_mock.call_count == 4
+    assert reconfigure_mock.call_count == 1
+    assert isinstance(worker.freqtrade, FreqtradeBot)
 
 
 def test_reconfigure(mocker, default_conf) -> None:
-    """ Test recreate() function """
     patch_exchange(mocker)
-    mocker.patch.multiple(
-        'freqtrade.freqtradebot.FreqtradeBot',
-        _init_modules=MagicMock(),
-        worker=MagicMock(side_effect=OperationalException('Oh snap!')),
-        cleanup=MagicMock(),
+    mocker.patch('freqtrade.freqtradebot.FreqtradeBot.cleanup', MagicMock())
+    mocker.patch(
+        'freqtrade.worker.Worker._worker',
+        MagicMock(side_effect=OperationalException('Oh snap!'))
     )
     mocker.patch(
         'freqtrade.configuration.Configuration._load_config_file',
         lambda *args, **kwargs: default_conf
     )
-    mocker.patch('freqtrade.freqtradebot.CryptoToFiatConverter', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager', MagicMock())
+    mocker.patch('freqtrade.freqtradebot.persistence.init', MagicMock())
 
-    freqtrade = FreqtradeBot(default_conf)
+    args = Arguments(['-c', 'config.json.example'], '').get_parsed_arg()
+    worker = Worker(args=args, config=default_conf)
+    freqtrade = worker.freqtrade
 
     # Renew mock to return modified data
     conf = deepcopy(default_conf)
@@ -206,11 +160,10 @@ def test_reconfigure(mocker, default_conf) -> None:
         lambda *args, **kwargs: conf
     )
 
+    worker._config = conf
     # reconfigure should return a new instance
-    freqtrade2 = reconfigure(
-        freqtrade,
-        Arguments(['-c', 'config.json.example'], '').get_parsed_arg()
-    )
+    worker._reconfigure()
+    freqtrade2 = worker.freqtrade
 
     # Verify we have a new instance with the new config
     assert freqtrade is not freqtrade2

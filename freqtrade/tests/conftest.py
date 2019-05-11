@@ -1,68 +1,119 @@
 # pragma pylint: disable=missing-docstring
 import json
 import logging
+import re
 from datetime import datetime
-from typing import Dict, Optional
 from functools import reduce
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock
 
 import arrow
 import pytest
-from jsonschema import validate
 from telegram import Chat, Message, Update
 
-from freqtrade.analyze import Analyze
 from freqtrade import constants
+from freqtrade.data.converter import parse_ticker_dataframe
+from freqtrade.edge import Edge, PairInfo
 from freqtrade.exchange import Exchange
 from freqtrade.freqtradebot import FreqtradeBot
+from freqtrade.resolvers import ExchangeResolver
+from freqtrade.worker import Worker
 
 logging.getLogger('').setLevel(logging.INFO)
 
 
 def log_has(line, logs):
-    # caplog mocker returns log as a tuple: ('freqtrade.analyze', logging.WARNING, 'foobar')
+    # caplog mocker returns log as a tuple: ('freqtrade.something', logging.WARNING, 'foobar')
     # and we want to match line against foobar in the tuple
     return reduce(lambda a, b: a or b,
                   filter(lambda x: x[2] == line, logs),
                   False)
 
 
-def patch_exchange(mocker, api_mock=None) -> None:
+def log_has_re(line, logs):
+    return reduce(lambda a, b: a or b,
+                  filter(lambda x: re.match(line, x[2]), logs),
+                  False)
+
+
+def patch_exchange(mocker, api_mock=None, id='bittrex') -> None:
+    mocker.patch('freqtrade.exchange.Exchange._load_markets', MagicMock(return_value={}))
     mocker.patch('freqtrade.exchange.Exchange.validate_pairs', MagicMock())
+    mocker.patch('freqtrade.exchange.Exchange.validate_timeframes', MagicMock())
+    mocker.patch('freqtrade.exchange.Exchange.validate_ordertypes', MagicMock())
+    mocker.patch('freqtrade.exchange.Exchange.id', PropertyMock(return_value=id))
+    mocker.patch('freqtrade.exchange.Exchange.name', PropertyMock(return_value=id.title()))
+
     if api_mock:
         mocker.patch('freqtrade.exchange.Exchange._init_ccxt', MagicMock(return_value=api_mock))
     else:
         mocker.patch('freqtrade.exchange.Exchange._init_ccxt', MagicMock())
 
 
-def get_patched_exchange(mocker, config, api_mock=None) -> Exchange:
-    patch_exchange(mocker, api_mock)
-    exchange = Exchange(config)
+def get_patched_exchange(mocker, config, api_mock=None, id='bittrex') -> Exchange:
+    patch_exchange(mocker, api_mock, id)
+    config["exchange"]["name"] = id
+    try:
+        exchange = ExchangeResolver(id.title(), config).exchange
+    except ImportError:
+        exchange = Exchange(config)
     return exchange
 
 
+def patch_wallet(mocker, free=999.9) -> None:
+    mocker.patch('freqtrade.wallets.Wallets.get_free', MagicMock(
+        return_value=free
+    ))
+
+
+def patch_edge(mocker) -> None:
+    # "ETH/BTC",
+    # "LTC/BTC",
+    # "XRP/BTC",
+    # "NEO/BTC"
+
+    mocker.patch('freqtrade.edge.Edge._cached_pairs', mocker.PropertyMock(
+        return_value={
+            'NEO/BTC': PairInfo(-0.20, 0.66, 3.71, 0.50, 1.71, 10, 25),
+            'LTC/BTC': PairInfo(-0.21, 0.66, 3.71, 0.50, 1.71, 11, 20),
+        }
+    ))
+    mocker.patch('freqtrade.edge.Edge.calculate', MagicMock(return_value=True))
+
+
+def get_patched_edge(mocker, config) -> Edge:
+    patch_edge(mocker)
+    edge = Edge(config)
+    return edge
+
 # Functions for recurrent object patching
-def get_patched_freqtradebot(mocker, config) -> FreqtradeBot:
+
+
+def patch_freqtradebot(mocker, config) -> None:
     """
     This function patch _init_modules() to not call dependencies
     :param mocker: a Mocker object to apply patches
     :param config: Config to pass to the bot
     :return: None
     """
-    # mocker.patch('freqtrade.fiat_convert.Market', {'price_usd': 12345.0})
-    patch_coinmarketcap(mocker, {'price_usd': 12345.0})
-    mocker.patch('freqtrade.freqtradebot.Analyze', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager', MagicMock())
     mocker.patch('freqtrade.freqtradebot.persistence.init', MagicMock())
     patch_exchange(mocker, None)
     mocker.patch('freqtrade.freqtradebot.RPCManager._init', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager.send_msg', MagicMock())
-    mocker.patch('freqtrade.freqtradebot.Analyze.get_signal', MagicMock())
 
+
+def get_patched_freqtradebot(mocker, config) -> FreqtradeBot:
+    patch_freqtradebot(mocker, config)
     return FreqtradeBot(config)
 
 
-def patch_coinmarketcap(mocker, value: Optional[Dict[str, float]] = None) -> None:
+def get_patched_worker(mocker, config) -> Worker:
+    patch_freqtradebot(mocker, config)
+    return Worker(args=None, config=config)
+
+
+@pytest.fixture(autouse=True)
+def patch_coinmarketcap(mocker) -> None:
     """
     Mocker to coinmarketcap to speed up tests
     :param mocker: mocker to patch coinmarketcap class
@@ -76,7 +127,7 @@ def patch_coinmarketcap(mocker, value: Optional[Dict[str, float]] = None) -> Non
                                                  'website_slug': 'ethereum'}
                                                 ]})
     mocker.patch.multiple(
-        'freqtrade.fiat_convert.Market',
+        'freqtrade.rpc.fiat_convert.Market',
         ticker=tickermock,
         listings=listmock,
 
@@ -105,7 +156,18 @@ def default_conf():
             "sell": 30
         },
         "bid_strategy": {
-            "ask_last_balance": 0.0
+            "ask_last_balance": 0.0,
+            "use_order_book": False,
+            "order_book_top": 1,
+            "check_depth_of_market": {
+                "enabled": False,
+                "bids_to_ask_delta": 1
+            }
+        },
+        "ask_strategy": {
+            "use_order_book": False,
+            "order_book_min": 1,
+            "order_book_max": 1
         },
         "exchange": {
             "name": "bittrex",
@@ -117,6 +179,10 @@ def default_conf():
                 "LTC/BTC",
                 "XRP/BTC",
                 "NEO/BTC"
+            ],
+            "pair_blacklist": [
+                "DOGE/BTC",
+                "HOT/BTC",
             ]
         },
         "telegram": {
@@ -128,7 +194,6 @@ def default_conf():
         "db_url": "sqlite://",
         "loglevel": logging.DEBUG,
     }
-    validate(configuration, constants.CONF_SCHEMA)
     return configuration
 
 
@@ -173,8 +238,8 @@ def ticker_sell_down():
 
 @pytest.fixture
 def markets():
-    return MagicMock(return_value=[
-        {
+    return {
+        'ETH/BTC': {
             'id': 'ethbtc',
             'symbol': 'ETH/BTC',
             'base': 'ETH',
@@ -199,7 +264,7 @@ def markets():
             },
             'info': '',
         },
-        {
+        'TKN/BTC': {
             'id': 'tknbtc',
             'symbol': 'TKN/BTC',
             'base': 'TKN',
@@ -224,7 +289,7 @@ def markets():
             },
             'info': '',
         },
-        {
+        'BLK/BTC': {
             'id': 'blkbtc',
             'symbol': 'BLK/BTC',
             'base': 'BLK',
@@ -249,7 +314,7 @@ def markets():
             },
             'info': '',
         },
-        {
+        'LTC/BTC': {
             'id': 'ltcbtc',
             'symbol': 'LTC/BTC',
             'base': 'LTC',
@@ -274,7 +339,7 @@ def markets():
             },
             'info': '',
         },
-        {
+        'XRP/BTC': {
             'id': 'xrpbtc',
             'symbol': 'XRP/BTC',
             'base': 'XRP',
@@ -299,7 +364,7 @@ def markets():
             },
             'info': '',
         },
-        {
+        'NEO/BTC': {
             'id': 'neobtc',
             'symbol': 'NEO/BTC',
             'base': 'NEO',
@@ -323,8 +388,80 @@ def markets():
                 },
             },
             'info': '',
+        },
+        'BTT/BTC': {
+            'id': 'BTTBTC',
+            'symbol': 'BTT/BTC',
+            'base': 'BTT',
+            'quote': 'BTC',
+            'active': True,
+            'precision': {
+                'base': 8,
+                'quote': 8,
+                'amount': 0,
+                'price': 8
+            },
+            'limits': {
+                'amount': {
+                    'min': 1.0,
+                    'max': 90000000.0
+                },
+                'price': {
+                    'min': None,
+                    'max': None
+                },
+                'cost': {
+                    'min': 0.001,
+                    'max': None
+                }
+            },
+            'info': "",
+        },
+        'ETH/USDT': {
+            'id': 'USDT-ETH',
+            'symbol': 'ETH/USDT',
+            'base': 'ETH',
+            'quote': 'USDT',
+            'precision': {
+                'amount': 8,
+                'price': 8
+            },
+            'limits': {
+                'amount': {
+                    'min': 0.02214286,
+                    'max': None
+                },
+                'price': {
+                    'min': 1e-08,
+                    'max': None
+                }
+            },
+            'active': True,
+            'info': ""
+        },
+        'LTC/USDT': {
+            'id': 'USDT-LTC',
+            'symbol': 'LTC/USDT',
+            'base': 'LTC',
+            'quote': 'USDT',
+            'active': True,
+            'precision': {
+                'amount': 8,
+                'price': 8
+            },
+            'limits': {
+                'amount': {
+                    'min': 0.06646786,
+                    'max': None
+                },
+                'price': {
+                    'min': 1e-08,
+                    'max': None
+                }
+            },
+            'info': ""
         }
-    ])
+    }
 
 
 @pytest.fixture
@@ -342,6 +479,36 @@ def limit_buy_order():
         'datetime': arrow.utcnow().isoformat(),
         'price': 0.00001099,
         'amount': 90.99181073,
+        'remaining': 0.0,
+        'status': 'closed'
+    }
+
+
+@pytest.fixture(scope='function')
+def market_buy_order():
+    return {
+        'id': 'mocked_market_buy',
+        'type': 'market',
+        'side': 'buy',
+        'pair': 'mocked',
+        'datetime': arrow.utcnow().isoformat(),
+        'price': 0.00004099,
+        'amount': 91.99181073,
+        'remaining': 0.0,
+        'status': 'closed'
+    }
+
+
+@pytest.fixture
+def market_sell_order():
+    return {
+        'id': 'mocked_limit_sell',
+        'type': 'market',
+        'side': 'sell',
+        'pair': 'mocked',
+        'datetime': arrow.utcnow().isoformat(),
+        'price': 0.00004173,
+        'amount': 91.99181073,
         'remaining': 0.0,
         'status': 'closed'
     }
@@ -408,7 +575,40 @@ def limit_sell_order():
 
 
 @pytest.fixture
-def ticker_history():
+def order_book_l2():
+    return MagicMock(return_value={
+        'bids': [
+            [0.043936, 10.442],
+            [0.043935, 31.865],
+            [0.043933, 11.212],
+            [0.043928, 0.088],
+            [0.043925, 10.0],
+            [0.043921, 10.0],
+            [0.04392, 37.64],
+            [0.043899, 0.066],
+            [0.043885, 0.676],
+            [0.04387, 22.758]
+        ],
+        'asks': [
+            [0.043949, 0.346],
+            [0.04395, 0.608],
+            [0.043951, 3.948],
+            [0.043954, 0.288],
+            [0.043958, 9.277],
+            [0.043995, 1.566],
+            [0.044, 0.588],
+            [0.044002, 0.992],
+            [0.044003, 0.095],
+            [0.04402, 37.64]
+        ],
+        'timestamp': None,
+        'datetime': None,
+        'nonce': 288004540
+    })
+
+
+@pytest.fixture
+def ticker_history_list():
     return [
         [
             1511686200000,  # unix timestamp ms
@@ -435,6 +635,11 @@ def ticker_history():
             0.7039405
         ]
     ]
+
+
+@pytest.fixture
+def ticker_history(ticker_history_list):
+    return parse_ticker_dataframe(ticker_history_list, "5m", True)
 
 
 @pytest.fixture
@@ -475,6 +680,7 @@ def tickers():
             'vwap': 0.01869197,
             'open': 0.018585,
             'close': 0.018573,
+            'last': 0.018799,
             'baseVolume': 81058.66,
             'quoteVolume': 2247.48374509,
         },
@@ -520,6 +726,28 @@ def tickers():
             'average': None,
             'baseVolume': 88620.68,
             'quoteVolume': 1401.65697943,
+            'info': {}
+        },
+        'BTT/BTC': {
+            'symbol': 'BTT/BTC',
+            'timestamp': 1550936557206,
+            'datetime': '2019-02-23T15:42:37.206Z',
+            'high': 0.00000026,
+            'low': 0.00000024,
+            'bid': 0.00000024,
+            'bidVolume': 2446894197.0,
+            'ask': 0.00000025,
+            'askVolume': 2447913837.0,
+            'vwap': 0.00000025,
+            'open': 0.00000026,
+            'close': 0.00000024,
+            'last': 0.00000024,
+            'previousClose': 0.00000026,
+            'change': -0.00000002,
+            'percentage': -7.692,
+            'average': None,
+            'baseVolume': 4886464537.0,
+            'quoteVolume': 1215.14489611,
             'info': {}
         },
         'ETH/USDT': {
@@ -616,7 +844,7 @@ def tickers():
 @pytest.fixture
 def result():
     with open('freqtrade/tests/testdata/UNITTEST_BTC-1m.json') as data_file:
-        return Analyze.parse_ticker_dataframe(json.load(data_file))
+        return parse_ticker_dataframe(json.load(data_file), '1m', True)
 
 # FIX:
 # Create an fixture/function
@@ -710,3 +938,26 @@ def buy_order_fee():
         'status': 'closed',
         'fee': None
     }
+
+
+@pytest.fixture(scope="function")
+def edge_conf(default_conf):
+    default_conf['max_open_trades'] = -1
+    default_conf['stake_amount'] = constants.UNLIMITED_STAKE_AMOUNT
+    default_conf['edge'] = {
+        "enabled": True,
+        "process_throttle_secs": 1800,
+        "calculate_since_number_of_days": 14,
+        "capital_available_percentage": 0.5,
+        "allowed_risk": 0.01,
+        "stoploss_range_min": -0.01,
+        "stoploss_range_max": -0.1,
+        "stoploss_range_step": -0.01,
+        "maximum_winrate": 0.80,
+        "minimum_expectancy": 0.20,
+        "min_trade_number": 15,
+        "max_trade_duration_minute": 1440,
+        "remove_pumps": False
+    }
+
+    return default_conf

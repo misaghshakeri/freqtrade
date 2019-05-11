@@ -1,24 +1,19 @@
 # Backtesting
 
-This page explains how to validate your strategy performance by using 
+This page explains how to validate your strategy performance by using
 Backtesting.
-
-## Table of Contents
-
-- [Test your strategy with Backtesting](#test-your-strategy-with-backtesting)
-- [Understand the backtesting result](#understand-the-backtesting-result)
 
 ## Test your strategy with Backtesting
 
 Now you have good Buy and Sell strategies, you want to test it against
-real data. This is what we call 
+real data. This is what we call
 [backtesting](https://en.wikipedia.org/wiki/Backtesting).
 
 Backtesting will use the crypto-currencies (pair) from your config file
-and load static tickers located in 
-[/freqtrade/tests/testdata](https://github.com/freqtrade/freqtrade/tree/develop/freqtrade/tests/testdata).  
-If the 5 min and 1 min ticker for the crypto-currencies to test is not 
-already in the `testdata` folder, backtesting will download them 
+and load static tickers located in
+[/freqtrade/tests/testdata](https://github.com/freqtrade/freqtrade/tree/develop/freqtrade/tests/testdata).
+If the 5 min and 1 min ticker for the crypto-currencies to test is not
+already in the `testdata` folder, backtesting will download them
 automatically. Testdata files will not be updated until you specify it.
 
 The result of backtesting will confirm you if your bot has better odds of making a profit than a loss.
@@ -29,37 +24,37 @@ The backtesting is very easy with freqtrade.
 #### With 5 min tickers (Per default)
 
 ```bash
-python3 ./freqtrade/main.py backtesting --realistic-simulation
+python3 freqtrade backtesting
 ```
 
 #### With 1 min tickers
 
 ```bash
-python3 ./freqtrade/main.py backtesting --realistic-simulation --ticker-interval 1m
+python3 freqtrade backtesting --ticker-interval 1m
 ```
 
 #### Update cached pairs with the latest data
 
 ```bash
-python3 ./freqtrade/main.py backtesting --realistic-simulation --refresh-pairs-cached
+python3 freqtrade backtesting --refresh-pairs-cached
 ```
 
 #### With live data (do not alter your testdata files)
 
 ```bash
-python3 ./freqtrade/main.py backtesting --realistic-simulation --live
+python3 freqtrade backtesting --live
 ```
 
 #### Using a different on-disk ticker-data source
 
 ```bash
-python3 ./freqtrade/main.py backtesting --datadir freqtrade/tests/testdata-20180101
+python3 freqtrade backtesting --datadir freqtrade/tests/testdata-20180101
 ```
 
 #### With a (custom) strategy file
 
 ```bash
-python3 ./freqtrade/main.py -s TestStrategy backtesting
+python3 freqtrade -s TestStrategy backtesting
 ```
 
 Where `-s TestStrategy` refers to the class name within the strategy file `test_strategy.py` found in the `freqtrade/user_data/strategies` directory
@@ -67,41 +62,15 @@ Where `-s TestStrategy` refers to the class name within the strategy file `test_
 #### Exporting trades to file
 
 ```bash
-python3 ./freqtrade/main.py backtesting --export trades
+python3 freqtrade backtesting --export trades
 ```
 
-The exported trades can be read using the following code for manual analysis, or can be used by the plotting script `plot_dataframe.py` in the scripts folder.
-
-``` python
-import json
-from pathlib import Path
-import pandas as pd
-
-filename=Path('user_data/backtest_data/backtest-result.json')
-
-with filename.open() as file:
-        data = json.load(file)
-
-columns = ["pair", "profit", "opents", "closets", "index", "duration",
-           "open_rate", "close_rate", "open_at_end"]
-df = pd.DataFrame(data, columns=columns)
-
-df['opents'] = pd.to_datetime(df['opents'],
-                              unit='s',
-                              utc=True,
-                              infer_datetime_format=True
-                             )
-df['closets'] = pd.to_datetime(df['closets'],
-                               unit='s',
-                               utc=True,
-                               infer_datetime_format=True
-                              )
-```
+The exported trades can be used for [further analysis](#further-backtest-result-analysis), or can be used by the plotting script `plot_dataframe.py` in the scripts folder.
 
 #### Exporting trades to file specifying a custom filename
 
 ```bash
-python3 ./freqtrade/main.py backtesting --export trades --export-filename=backtest_teststrategy.json
+python3 freqtrade backtesting --export trades --export-filename=backtest_teststrategy.json
 ```
 
 #### Running backtest with smaller testset
@@ -112,7 +81,7 @@ you want to use. The last N ticks/timeframes will be used.
 Example:
 
 ```bash
-python3 ./freqtrade/main.py backtesting --timerange=-200
+python3 freqtrade backtesting --timerange=-200
 ```
 
 #### Advanced use of timerange
@@ -149,7 +118,7 @@ cp freqtrade/tests/testdata/pairs.json user_data/data/binance
 Then run:
 
 ```bash
-python scripts/download_backtest_data --exchange binance
+python scripts/download_backtest_data.py --exchange binance
 ```
 
 This will download ticker data for all the currency pairs you defined in `pairs.json`.
@@ -169,60 +138,72 @@ The most important in the backtesting is to understand the result.
 A backtesting result will look like that:
 
 ```
-======================================== BACKTESTING REPORT =========================================
-| pair     |   buy count |   avg profit % |   total profit BTC |   avg duration |   profit |   loss |
-|:---------|------------:|---------------:|-------------------:|---------------:|---------:|-------:|
-| ETH/BTC  |          44 |           0.18 |         0.00159118 |           50.9 |       44 |      0 |
-| LTC/BTC  |          27 |           0.10 |         0.00051931 |          103.1 |       26 |      1 |
-| ETC/BTC  |          24 |           0.05 |         0.00022434 |          166.0 |       22 |      2 |
-| DASH/BTC |          29 |           0.18 |         0.00103223 |          192.2 |       29 |      0 |
-| ZEC/BTC  |          65 |          -0.02 |        -0.00020621 |          202.7 |       62 |      3 |
-| XLM/BTC  |          35 |           0.02 |         0.00012877 |          242.4 |       32 |      3 |
-| BCH/BTC  |          12 |           0.62 |         0.00149284 |           50.0 |       12 |      0 |
-| POWR/BTC |          21 |           0.26 |         0.00108215 |          134.8 |       21 |      0 |
-| ADA/BTC  |          54 |          -0.19 |        -0.00205202 |          191.3 |       47 |      7 |
-| XMR/BTC  |          24 |          -0.43 |        -0.00206013 |          120.6 |       20 |      4 |
-| TOTAL    |         335 |           0.03 |         0.00175246 |          157.9 |      315 |     20 |
-2018-06-13 06:57:27,347 - freqtrade.optimize.backtesting - INFO -
-====================================== LEFT OPEN TRADES REPORT ======================================
-| pair     |   buy count |   avg profit % |   total profit BTC |   avg duration |   profit |   loss |
-|:---------|------------:|---------------:|-------------------:|---------------:|---------:|-------:|
-| ETH/BTC  |           3 |           0.16 |         0.00009619 |           25.0 |        3 |      0 |
-| LTC/BTC  |           1 |          -1.00 |        -0.00020118 |         1085.0 |        0 |      1 |
-| ETC/BTC  |           2 |          -1.80 |        -0.00071933 |         1092.5 |        0 |      2 |
-| DASH/BTC |           0 |         nan    |         0.00000000 |          nan   |        0 |      0 |
-| ZEC/BTC  |           3 |          -4.27 |        -0.00256826 |         1301.7 |        0 |      3 |
-| XLM/BTC  |           3 |          -1.11 |        -0.00066744 |          965.0 |        0 |      3 |
-| BCH/BTC  |           0 |         nan    |         0.00000000 |          nan   |        0 |      0 |
-| POWR/BTC |           0 |         nan    |         0.00000000 |          nan   |        0 |      0 |
-| ADA/BTC  |           7 |          -3.58 |        -0.00503604 |          850.0 |        0 |      7 |
-| XMR/BTC  |           4 |          -3.79 |        -0.00303456 |          291.2 |        0 |      4 |
-| TOTAL    |          23 |          -2.63 |        -0.01213062 |          750.4 |        3 |     20 |
-
+========================================================= BACKTESTING REPORT ========================================================
+| pair     |   buy count |   avg profit % |   cum profit % |   tot profit BTC |   tot profit % | avg duration   |   profit |   loss |
+|:---------|------------:|---------------:|---------------:|-----------------:|---------------:|:---------------|---------:|-------:|
+| ADA/BTC  |          35 |          -0.11 |          -3.88 |      -0.00019428 |          -1.94 | 4:35:00        |       14 |     21 |
+| ARK/BTC  |          11 |          -0.41 |          -4.52 |      -0.00022647 |          -2.26 | 2:03:00        |        3 |      8 |
+| BTS/BTC  |          32 |           0.31 |           9.78 |       0.00048938 |           4.89 | 5:05:00        |       18 |     14 |
+| DASH/BTC |          13 |          -0.08 |          -1.07 |      -0.00005343 |          -0.53 | 4:39:00        |        6 |      7 |
+| ENG/BTC  |          18 |           1.36 |          24.54 |       0.00122807 |          12.27 | 2:50:00        |        8 |     10 |
+| EOS/BTC  |          36 |           0.08 |           3.06 |       0.00015304 |           1.53 | 3:34:00        |       16 |     20 |
+| ETC/BTC  |          26 |           0.37 |           9.51 |       0.00047576 |           4.75 | 6:14:00        |       11 |     15 |
+| ETH/BTC  |          33 |           0.30 |           9.96 |       0.00049856 |           4.98 | 7:31:00        |       16 |     17 |
+| IOTA/BTC |          32 |           0.03 |           1.09 |       0.00005444 |           0.54 | 3:12:00        |       14 |     18 |
+| LSK/BTC  |          15 |           1.75 |          26.26 |       0.00131413 |          13.13 | 2:58:00        |        6 |      9 |
+| LTC/BTC  |          32 |          -0.04 |          -1.38 |      -0.00006886 |          -0.69 | 4:49:00        |       11 |     21 |
+| NANO/BTC |          17 |           1.26 |          21.39 |       0.00107058 |          10.70 | 1:55:00        |       10 |      7 |
+| NEO/BTC  |          23 |           0.82 |          18.97 |       0.00094936 |           9.48 | 2:59:00        |       10 |     13 |
+| REQ/BTC  |           9 |           1.17 |          10.54 |       0.00052734 |           5.27 | 3:47:00        |        4 |      5 |
+| XLM/BTC  |          16 |           1.22 |          19.54 |       0.00097800 |           9.77 | 3:15:00        |        7 |      9 |
+| XMR/BTC  |          23 |          -0.18 |          -4.13 |      -0.00020696 |          -2.07 | 5:30:00        |       12 |     11 |
+| XRP/BTC  |          35 |           0.66 |          22.96 |       0.00114897 |          11.48 | 3:49:00        |       12 |     23 |
+| ZEC/BTC  |          22 |          -0.46 |         -10.18 |      -0.00050971 |          -5.09 | 2:22:00        |        7 |     15 |
+| TOTAL    |         429 |           0.36 |         152.41 |       0.00762792 |          76.20 | 4:12:00        |      186 |    243 |
+========================================================= SELL REASON STATS =========================================================
+| Sell Reason        |   Count |
+|:-------------------|--------:|
+| trailing_stop_loss |     205 |
+| stop_loss          |     166 |
+| sell_signal        |      56 |
+| force_sell         |       2 |
+====================================================== LEFT OPEN TRADES REPORT ======================================================
+| pair     |   buy count |   avg profit % |   cum profit % |   tot profit BTC |   tot profit % | avg duration   |   profit |   loss |
+|:---------|------------:|---------------:|---------------:|-----------------:|---------------:|:---------------|---------:|-------:|
+| ADA/BTC  |           1 |           0.89 |           0.89 |       0.00004434 |           0.44 | 6:00:00        |        1 |      0 |
+| LTC/BTC  |           1 |           0.68 |           0.68 |       0.00003421 |           0.34 | 2:00:00        |        1 |      0 |
+| TOTAL    |           2 |           0.78 |           1.57 |       0.00007855 |           0.78 | 4:00:00        |        2 |      0 |
 ```
 
 The 1st table will contain all trades the bot made.
 
-The 2nd table will contain all trades the bot had to `forcesell` at the end of the backtest period to prsent a full picture.
+The 2nd table will contain a recap of sell reasons.
+
+The 3rd table will contain all trades the bot had to `forcesell` at the end of the backtest period to present a full picture.
 These trades are also included in the first table, but are extracted separately for clarity.
 
 The last line will give you the overall performance of your strategy,
 here:
 
 ```
-TOTAL             419           -0.41         -0.00348593            52.9
+| TOTAL    |         429 |           0.36 |         152.41 |       0.00762792 |          76.20 | 4:12:00        |      186 |    243 |
 ```
 
-We understand the bot has made `419` trades for an average duration of
-`52.9` min, with a performance of `-0.41%` (loss), that means it has 
-lost a total of `-0.00348593 BTC`.
- 
-As you will see your strategy performance will be influenced by your buy 
-strategy, your sell strategy, and also by the `minimal_roi` and 
-`stop_loss` you have set. 
+We understand the bot has made `429` trades for an average duration of
+`4:12:00`, with a performance of `76.20%` (profit), that means it has
+earned a total of `0.00762792 BTC` starting with a capital of 0.01 BTC.
+
+The column `avg profit %` shows the average profit for all trades made while the column `cum profit %` sums all the profits/losses. 
+The column `tot profit %` shows instead the total profit % in relation to allocated capital 
+(`max_open_trades * stake_amount`). In the above results we have `max_open_trades=2 stake_amount=0.005` in config 
+so `(76.20/100) * (0.005 * 2) =~ 0.00762792 BTC`.
+
+As you will see your strategy performance will be influenced by your buy
+strategy, your sell strategy, and also by the `minimal_roi` and
+`stop_loss` you have set.
 
 As for an example if your minimal_roi is only `"0":  0.01`. You cannot
-expect the bot to make more profit than 1% (because it will sell every 
+expect the bot to make more profit than 1% (because it will sell every
 time a trade will reach 1%).
 
 ```json
@@ -232,12 +213,59 @@ time a trade will reach 1%).
 ```
 
 On the other hand, if you set a too high `minimal_roi` like `"0":  0.55`
-(55%), there is a lot of chance that the bot will never reach this 
-profit. Hence, keep in mind that your performance is a mix of your 
+(55%), there is a lot of chance that the bot will never reach this
+profit. Hence, keep in mind that your performance is a mix of your
 strategies, your configuration, and the crypto-currency you have set up.
+
+### Further backtest-result analysis
+
+To further analyze your backtest results, you can [export the trades](#exporting-trades-to-file).
+You can then load the trades to perform further analysis.
+
+A good way for this is using Jupyter (notebook or lab) - which provides an interactive environment to analyze the data.
+
+Freqtrade provides an easy to load the backtest results, which is `load_backtest_data` - and takes a path to the backtest-results file.
+
+``` python
+from freqtrade.data.btanalysis import load_backtest_data
+df = load_backtest_data("user_data/backtest-result.json")
+
+# Show value-counts per pair
+df.groupby("pair")["sell_reason"].value_counts()
+
+```
+
+This will allow you to drill deeper into your backtest results, and perform analysis which would make the regular backtest-output unreadable.
+
+If you have some ideas for interesting / helpful backtest data analysis ideas, please submit a PR so the community can benefit from it.
+
+## Backtesting multiple strategies
+
+To backtest multiple strategies, a list of Strategies can be provided.
+
+This is limited to 1 ticker-interval per run, however, data is only loaded once from disk so if you have multiple
+strategies you'd like to compare, this should give a nice runtime boost.
+
+All listed Strategies need to be in the same folder.
+
+``` bash
+freqtrade backtesting --timerange 20180401-20180410 --ticker-interval 5m --strategy-list Strategy001 Strategy002 --export trades
+```
+
+This will save the results to `user_data/backtest_data/backtest-result-<strategy>.json`, injecting the strategy-name into the target filename.
+There will be an additional table comparing win/losses of the different strategies (identical to the "Total" row in the first table).
+Detailed output for all strategies one after the other will be available, so make sure to scroll up.
+
+```
+=========================================================== Strategy Summary ===========================================================
+| Strategy    |   buy count |   avg profit % |   cum profit % |   tot profit BTC |   tot profit % | avg duration   |   profit |   loss |
+|:------------|------------:|---------------:|---------------:|-----------------:|---------------:|:---------------|---------:|-------:|
+| Strategy1   |         429 |           0.36 |         152.41 |       0.00762792 |          76.20 | 4:12:00        |      186 |    243 |
+| Strategy2   |        1487 |          -0.13 |        -197.58 |      -0.00988917 |         -98.79 | 4:43:00        |      662 |    825 |
+```
 
 ## Next step
 
 Great, your strategy is profitable. What if the bot can give your the
-optimal parameters to use for your strategy?  
-Your next step is to learn [how to find optimal parameters with Hyperopt](https://github.com/freqtrade/freqtrade/blob/develop/docs/hyperopt.md)
+optimal parameters to use for your strategy?
+Your next step is to learn [how to find optimal parameters with Hyperopt](hyperopt.md)

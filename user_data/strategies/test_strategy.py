@@ -7,16 +7,18 @@ from pandas import DataFrame
 # Add your lib to import here
 import talib.abstract as ta
 import freqtrade.vendor.qtpylib.indicators as qtpylib
-import numpy # noqa
+import numpy  # noqa
 
 
 # This class is a sample. Feel free to customize it.
 class TestStrategy(IStrategy):
+    __test__ = False  # pytest expects to find tests here because of the name
     """
     This is a test strategy to inspire you.
     More information in https://github.com/freqtrade/freqtrade/blob/develop/docs/bot-optimization.md
 
     You can:
+        :return: a Dataframe with all mandatory indicators for the strategies
     - Rename the class name (Do not forget to update class_name)
     - Add any methods you want to build your strategy
     - Add any lib you need to build your strategy
@@ -40,16 +42,59 @@ class TestStrategy(IStrategy):
     # This attribute will be overridden if the config file contains "stoploss"
     stoploss = -0.10
 
+    # trailing stoploss
+    trailing_stop = False
+    trailing_stop_positive = 0.01
+    trailing_stop_positive_offset = 0.0  # Disabled / not configured
+
     # Optimal ticker interval for the strategy
     ticker_interval = '5m'
 
-    def populate_indicators(self, dataframe: DataFrame) -> DataFrame:
+    # run "populate_indicators" only for new candle
+    ta_on_candle = False
+
+    # Experimental settings (configuration will overide these if set)
+    use_sell_signal = False
+    sell_profit_only = False
+    ignore_roi_if_buy_signal = False
+
+    # Optional order type mapping
+    order_types = {
+        'buy': 'limit',
+        'sell': 'limit',
+        'stoploss': 'market',
+        'stoploss_on_exchange': False
+    }
+
+    # Optional order time in force
+    order_time_in_force = {
+        'buy': 'gtc',
+        'sell': 'gtc'
+    }
+
+    def informative_pairs(self):
+        """
+        Define additional, informative pair/interval combinations to be cached from the exchange.
+        These pair/interval combinations are non-tradeable, unless they are part
+        of the whitelist as well.
+        For more information, please consult the documentation
+        :return: List of tuples in the format (pair, interval)
+            Sample: return [("ETH/USDT", "5m"),
+                            ("BTC/USDT", "15m"),
+                            ]
+        """
+        return []
+
+    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """
         Adds several different TA indicators to the given DataFrame
 
         Performance Note: For the best performance be frugal on the number of indicators
         you are using. Let uncomment only the indicator you are using in your strategies
         or your hyperopt configuration, otherwise you will waste your memory and CPU usage.
+        :param dataframe: Raw data from the exchange and parsed by parse_ticker_dataframe()
+        :param metadata: Additional information, like the currently traded pair
+        :return: a Dataframe with all mandatory indicators for the strategies
         """
 
         # Momentum Indicator
@@ -210,33 +255,37 @@ class TestStrategy(IStrategy):
 
         return dataframe
 
-    def populate_buy_trend(self, dataframe: DataFrame) -> DataFrame:
+    def populate_buy_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """
         Based on TA indicators, populates the buy signal for the given dataframe
-        :param dataframe: DataFrame
+        :param dataframe: DataFrame populated with indicators
+        :param metadata: Additional information, like the currently traded pair
         :return: DataFrame with buy column
         """
         dataframe.loc[
             (
                 (dataframe['adx'] > 30) &
                 (dataframe['tema'] <= dataframe['bb_middleband']) &
-                (dataframe['tema'] > dataframe['tema'].shift(1))
+                (dataframe['tema'] > dataframe['tema'].shift(1)) &
+                (dataframe['volume'] > 0)  # Make sure Volume is not 0
             ),
             'buy'] = 1
 
         return dataframe
 
-    def populate_sell_trend(self, dataframe: DataFrame) -> DataFrame:
+    def populate_sell_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """
         Based on TA indicators, populates the sell signal for the given dataframe
-        :param dataframe: DataFrame
+        :param dataframe: DataFrame populated with indicators
+        :param metadata: Additional information, like the currently traded pair
         :return: DataFrame with buy column
         """
         dataframe.loc[
             (
                 (dataframe['adx'] > 70) &
                 (dataframe['tema'] > dataframe['bb_middleband']) &
-                (dataframe['tema'] < dataframe['tema'].shift(1))
+                (dataframe['tema'] < dataframe['tema'].shift(1)) &
+                (dataframe['volume'] > 0)  # Make sure Volume is not 0
             ),
             'sell'] = 1
         return dataframe

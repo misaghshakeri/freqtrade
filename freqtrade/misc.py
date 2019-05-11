@@ -1,16 +1,16 @@
 """
 Various tool function for Freqtrade and scripts
 """
-
-import json
+import gzip
 import logging
 import re
-import gzip
 from datetime import datetime
 from typing import Dict
 
 import numpy as np
 from pandas import DataFrame
+import rapidjson
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +38,7 @@ def datesarray_to_datetimearray(dates: np.ndarray) -> np.ndarray:
     An numpy-array of datetimes
     :return: numpy-array of datetime
     """
-    times = []
-    dates = dates.astype(datetime)
-    for index in range(0, dates.size):
-        date = dates[index].to_pydatetime()
-        times.append(date)
-    return np.array(times)
+    return dates.dt.to_pydatetime()
 
 
 def common_datearray(dfs: Dict[str, DataFrame]) -> np.ndarray:
@@ -71,16 +66,45 @@ def file_dump_json(filename, data, is_zip=False) -> None:
     :param data: JSON Data to save
     :return:
     """
-    print(f'dumping json to "{filename}"')
+    logger.info(f'dumping json to "{filename}"')
 
     if is_zip:
         if not filename.endswith('.gz'):
             filename = filename + '.gz'
         with gzip.open(filename, 'w') as fp:
-            json.dump(data, fp, default=str)
+            rapidjson.dump(data, fp, default=str, number_mode=rapidjson.NM_NATIVE)
     else:
         with open(filename, 'w') as fp:
-            json.dump(data, fp, default=str)
+            rapidjson.dump(data, fp, default=str, number_mode=rapidjson.NM_NATIVE)
+
+    logger.debug(f'done json to "{filename}"')
+
+
+def json_load(datafile):
+    """
+    load data with rapidjson
+    Use this to have a consistent experience,
+    sete number_mode to "NM_NATIVE" for greatest speed
+    """
+    return rapidjson.load(datafile, number_mode=rapidjson.NM_NATIVE)
+
+
+def file_load_json(file):
+
+    gzipfile = file.with_suffix(file.suffix + '.gz')
+
+    # Try gzip file first, otherwise regular json file.
+    if gzipfile.is_file():
+        logger.debug('Loading ticker data from file %s', gzipfile)
+        with gzip.open(gzipfile) as tickerdata:
+            pairdata = json_load(tickerdata)
+    elif file.is_file():
+        logger.debug('Loading ticker data from file %s', file)
+        with open(file) as tickerdata:
+            pairdata = json_load(tickerdata)
+    else:
+        return None
+    return pairdata
 
 
 def format_ms_time(date: int) -> str:
@@ -89,3 +113,21 @@ def format_ms_time(date: int) -> str:
     : epoch-string in ms
     """
     return datetime.fromtimestamp(date/1000.0).strftime('%Y-%m-%dT%H:%M:%S')
+
+
+def deep_merge_dicts(source, destination):
+    """
+    >>> a = { 'first' : { 'rows' : { 'pass' : 'dog', 'number' : '1' } } }
+    >>> b = { 'first' : { 'rows' : { 'fail' : 'cat', 'number' : '5' } } }
+    >>> merge(b, a) == { 'first' : { 'rows' : { 'pass' : 'dog', 'fail' : 'cat', 'number' : '5' } } }
+    True
+    """
+    for key, value in source.items():
+        if isinstance(value, dict):
+            # get node or create one
+            node = destination.setdefault(key, {})
+            deep_merge_dicts(value, node)
+        else:
+            destination[key] = value
+
+    return destination
