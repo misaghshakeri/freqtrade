@@ -27,6 +27,8 @@ import numpy as np
 import pandas as pd
 from pandas.core.base import PandasObject
 
+import talib.abstract as ta
+
 # =============================================
 # check min, python version
 if sys.version_info < (3, 4):
@@ -204,7 +206,7 @@ def true_range(bars):
 
 # ---------------------------------------------
 
-def atr(bars, window=14, exp=False):
+def atr(bars, window=7, exp=False):
     tr = true_range(bars)
 
     if exp:
@@ -559,8 +561,50 @@ def stoch(df, window=14, d=3, k=3, fast=False):
 
 
 # ---------------------------------------------
+def super_trend(df, period=7, multiplier=3):
 
-def super_trend(df, period=14, multiplier=3):
+    df['TR'] = ta.TRANGE(df)
+    df['ATR'] = df['TR'].ewm(alpha=1 / period).mean()
+
+    df['up'] = ((df['high'] + df['low'])/ 2) - (multiplier * df['ATR'])
+    df['down'] = ((df['high'] + df['low']) / 2) + (multiplier * df['ATR'])
+
+    df['trend_up'] = 0.00
+    for i in range(period, len(df)):
+        if df['trend_up'].iat[i - 1] < df['close'].iat[i - 1]:
+            df['trend_up'].iat[i] = max(df['up'].iat[i], df['trend_up'].iat[i - 1])
+        else:
+            df['trend_up'].iat[i] = df['up'].iat[i]
+
+
+    df['trend_down'] = 0.00
+    for i in range(period, len(df)):
+        if df['trend_down'].iat[i - 1] > df['close'].iat[i - 1]:
+            df['trend_down'].iat[i] = min(df['down'].iat[i], df['trend_down'].iat[i - 1])
+        else:
+            df['trend_down'].iat[i] = df['down'].iat[i]
+
+    df['trend'] = 0.00
+    df['trend_direction'] = ''
+    for i in range(period, len(df)):
+        if df['close'].iat[i] > df['trend_down'].iat[i - 1]:
+            df['trend'].iat[i] =  df['trend_up'].iat[i]
+            df['trend_direction'].iat[i] = 'up'
+        else:
+            if df['close'].iat[i] < df['trend_up'].iat[i - 1]:
+                df['trend'].iat[i] =  df['trend_down'].iat[i]
+                df['trend_direction'].iat[i] = 'down'
+            else:
+                if df['trend'].iat[i - 1] == 0:
+                    df['trend'].iat[i] =  df['trend_up'].iat[i]
+                    df['trend_direction'].iat[i] = 'up'
+                else:
+                    df['trend'].iat[i] = df['trend'].iat[i - 1]
+                    df['trend_direction'].iat[i] = df['trend_direction'].iat[i -1]
+    df.fillna(0, inplace=True)
+    return df
+
+def super_trend_old(df, period=7, multiplier=3):
     """
     compute the super trend indicator
     adds following to dataframe:
@@ -569,7 +613,8 @@ def super_trend(df, period=14, multiplier=3):
     """
     ohlc = ['open', 'high', 'low', 'close']
 
-    df['atr'] = atr(df)
+    df['atr'] = ta.ATR(df, timeperiod=7)
+    #df['atr'] = atr(df, window=7, exp=True)
 
     # Compute basic upper and lower bands
     df['basic_ub'] = (df[ohlc[1]] + df[ohlc[2]]) / 2 + multiplier * df["atr"]
@@ -619,9 +664,6 @@ def super_trend(df, period=14, multiplier=3):
     df.fillna(0, inplace=True)
 
     return df
-
-
-# ---------------------------------------------
 
 def zscore(bars, window=20, stds=1, col='close'):
     """ get zscore of price """
