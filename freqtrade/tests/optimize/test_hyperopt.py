@@ -195,6 +195,33 @@ def test_start(mocker, default_conf, caplog) -> None:
     assert start_mock.call_count == 1
 
 
+def test_start_no_data(mocker, default_conf, caplog) -> None:
+    mocker.patch(
+        'freqtrade.configuration.Configuration._load_config_file',
+        lambda *args, **kwargs: default_conf
+    )
+    mocker.patch('freqtrade.optimize.hyperopt.load_data', MagicMock(return_value={}))
+    mocker.patch(
+        'freqtrade.optimize.hyperopt.get_timeframe',
+        MagicMock(return_value=(datetime(2017, 12, 10), datetime(2017, 12, 13)))
+    )
+
+    patch_exchange(mocker)
+
+    args = [
+        '--config', 'config.json',
+        'hyperopt',
+        '--epochs', '5'
+    ]
+    args = get_args(args)
+    start(args)
+
+    import pprint
+    pprint.pprint(caplog.record_tuples)
+
+    assert log_has('No data found. Terminating.', caplog.record_tuples)
+
+
 def test_start_failure(mocker, default_conf, caplog) -> None:
     start_mock = MagicMock()
     mocker.patch(
@@ -249,11 +276,12 @@ def test_log_results_if_loss_improves(hyperopt, capsys) -> None:
             'loss': 1,
             'current_tries': 1,
             'total_tries': 2,
-            'result': 'foo'
+            'result': 'foo.',
+            'initial_point': False
         }
     )
     out, err = capsys.readouterr()
-    assert '    1/2: foo. Loss 1.00000' in out
+    assert '    2/2: foo. Objective: 1.00000' in out
 
 
 def test_no_log_if_loss_does_not_improve(hyperopt, caplog) -> None:
@@ -309,6 +337,11 @@ def test_roi_table_generation(hyperopt) -> None:
 def test_start_calls_optimizer(mocker, default_conf, caplog) -> None:
     dumper = mocker.patch('freqtrade.optimize.hyperopt.dump', MagicMock())
     mocker.patch('freqtrade.optimize.hyperopt.load_data', MagicMock())
+    mocker.patch(
+        'freqtrade.optimize.hyperopt.get_timeframe',
+        MagicMock(return_value=(datetime(2017, 12, 10), datetime(2017, 12, 13)))
+    )
+
     parallel = mocker.patch(
         'freqtrade.optimize.hyperopt.Hyperopt.run_optimizer_parallel',
         MagicMock(return_value=[{'loss': 1, 'result': 'foo result', 'params': {}}])
@@ -459,7 +492,7 @@ def test_generate_optimizer(mocker, default_conf) -> None:
     response_expected = {
         'loss': 1.9840569076926293,
         'result': '     1 trades. Avg profit  2.31%. Total profit  0.00023300 BTC '
-                  '(0.0231Σ%). Avg duration 100.0 mins.',
+                  '(   2.31Σ%). Avg duration 100.0 mins.',
         'params': optimizer_param
     }
 
